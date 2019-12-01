@@ -1,0 +1,67 @@
+- hosts: all
+  become: yes
+  become_method: sudo
+
+  vars:
+    - git_repository: https://github.ncsu.edu/csc510-fall2019/CSC510-24
+    - git_destination: app
+    - node_apps_location: /usr/local/opt/node/app
+    - temp_path: /tmp
+
+  pre_tasks:
+    - name: update apt-get cache
+      command: apt-get update
+      become: yes
+
+  roles:
+    - {role: geerlingguy.nodejs , become: yes}
+    - {role: geerlingguy.git , become: yes}
+    - {role: stone-payments.mongodb , become: yes}
+
+  handlers:
+  - name: start mongodb
+    service: name=mongod state=started    
+    
+  tasks:
+    - name: install npm
+      apt: name = {{ item }} update_cache=yes state=latest
+      with_items:
+        - npm
+      register: npm_finished
+      
+    - name: install forever.
+      npm: 
+        name: forever 
+        global: yes 
+        state: present
+      register: forever_finished
+      
+    - name: clone git repository
+      git:
+        repo: "{{ git_repository }}"
+        dest: "{{ node_apps_location }}"
+      register: git_finished
+      
+    - name: Ensure Node.js app folder exists.
+      file: "path={{ node_apps_location }} state=directory"
+      register: app_exists
+      
+    - name: Copy env file app to server.
+      copy: src=.env dest="{{ node_apps_location }}"
+      register : copy_finished
+      
+    - name : install npm packages
+      npm:
+        path: "{{ node_apps_location }}"
+        executable: /usr/bin/npm --unsafe-perm=true --allow-root
+      become : yes
+      register: npm_packages_finished
+
+    - name: Check list of running Node.js apps.
+      command: forever list
+      register: forever_list
+      changed_when: false
+
+    - name: Start Git Bot Server.
+      command: "forever start {{ node_apps_location }}/src/index.js start 8080"
+
